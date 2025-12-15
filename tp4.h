@@ -1,70 +1,66 @@
+/*
+ * tp4.h
+ * Déclarations des structures et prototypes pour l'indexation de texte par ABR.
+ */
+
 #ifndef TP4_H
 #define TP4_H
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
-// ----- Structure Position -----
+/* --- A. Structures de données (Source: 9-27) --- */
+
+// Structure représentant une position unique d'un mot
 typedef struct Position {
-    int numeroLigne;         // ligne du mot
-    int ordre;               // ordre dans la ligne
-    int numeroPhrase;        // numéro de phrase
-    struct Position *suivant;
+    int numeroLigne;
+    int ordre;
+    int numeroPhrase;
+    struct Position* suivant;
 } T_Position;
 
-// ----- Structure Noeud (ABR) -----
+// Structure représentant un nœud de l'ABR
 typedef struct Noeud {
-    char *mot;                    // mot stocké
-    int nbOccurences;             // nombre total d'occurrences du mot
-    T_Position *listePositions;   // liste chainée des positions
-    struct Noeud *filsGauche;     // fils gauche
-    struct Noeud *filsDroit;      // fils droit
+    char* mot;
+    int nbOccurences;
+    T_Position* listePositions;
+    struct Noeud* filsGauche;
+    struct Noeud* filsDroit;
 } T_Noeud;
 
-// ----- Structure Index -----
+// Structure représentant l'Index global
 typedef struct Index {
-    T_Noeud *racine;       // racine de l'arbre binaire de recherche
-    int nbMotsDistincts;   // nombre de mots différents
-    int nbMotsTotal;       // nombre total d'occurrences
+    T_Noeud* racine;
+    int nbMotsDistincts;
+    int nbMotsTotal;
 } T_Index;
 
+/* --- B. Prototypes des fonctions --- */
 
+// 1. Gestion des positions
+T_Position* ajouterPosition(T_Position* listeP, int ligne, int ordre, int phrase);
 
-// ---  Fonctions de base ---
+// 2. Gestion de l'ABR (Ajout)
+int ajouterOccurence(T_Index* index, char* mot, int ligne, int ordre, int phrase);
 
-// 1. Ajouter une position dans une liste triée
-T_Position *ajouterPosition(T_Position *listeP, int ligne, int ordre, int phrase);
+// 3. Indexation du fichier
+int indexerFichier(T_Index* index, char* filename);
 
-// 2. Ajouter une occurrence dans l'index (insertion ABR)
-int ajouterOccurence(T_Index *index, char *mot, int ligne, int ordre, int phrase);
-
-// 3. Indexer un fichier texte
-int indexerFichier(T_Index *index, char *filename);
-
-// 4. Afficher l'index en ordre alphabétique
+// 4. Affichage de l'index (Parcours infixe)
 void afficherIndex(T_Index index);
 
-// 5. Rechercher un mot dans l'index
-T_Noeud* rechercherMot(T_Index index, char *mot);
+// 5. Recherche
+T_Noeud* rechercherMot(T_Index index, char* mot);
 
-// 6. Afficher toutes les phrases contenant un mot
-void afficherOccurencesMot(T_Index index, char *mot);
+// 6. Affichage des phrases contenant un mot (Optimisé)
+void afficherOccurencesMot(T_Index index, char* mot);
 
-// 7. Construire le texte à partir de l'index
-void construireTexte(T_Index index, char *filename);
+// 7. Reconstruction du texte (Optimisé)
+void construireTexte(T_Index index, char* filename);
 
-// --- Fonctions utilitaires ---
-
-// Pour initialiser un index
-void initialiserIndex(T_Index *index);
-
-// Libération de tout l'arbre
-void libererIndex(T_Index *index);
-
-// Comparaison de mots insensible à la casse
-int comparerMots(const char *m1, const char *m2);
-
+// Utilitaires de gestion mémoire
+void libererIndex(T_Index* index);
 
 #endif
-

@@ -1,0 +1,2 @@
+L'ARBRE est la structure de base.
+Un arbre est la solution.
