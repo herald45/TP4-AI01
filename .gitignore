@@ -37,10 +37,23 @@
 *.hex
 
 # Debug files
-*.dSYM/
-*.su
-*.idb
-*.pdb
+*.md
+*.txt
+*.log
+*.aux
+*.out
+*.toc
+*.bbl
+*.blg
+*.bcf
+*.run.xml
+*.fdb_latexmk
+*.synctex.gz
+*.fls
+*.lof
+*.lot
+*.gz
+
 
 # Kernel Module Compile Results
 *.mod*

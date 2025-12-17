@@ -1,7 +1,22 @@
 #include "tp4.h"
 #include <strings.h> // Pour strcasecmp
 
-/* --- Fonctions Utilitaires --- */
+/* --- STRUCTURES INTERNES (Helper pour Q6 & Q7) --- */
+
+// Structure pour stocker un mot avec son ordre dans une phrase
+typedef struct MotDansPhrase {
+    char* mot;
+    int ordre;
+    struct MotDansPhrase* suivant;
+} T_MotDansPhrase;
+
+// Structure pour stocker toutes les phrases (utilisée par construireTexte)
+typedef struct {
+    T_MotDansPhrase** phrases;
+    int capacite;
+} T_MapPhrases;
+
+/* --- FONCTIONS UTILITAIRES --- */
 
 T_Position* creerPosition(int ligne, int ordre, int phrase) {
     T_Position* newP = (T_Position*)malloc(sizeof(T_Position));
@@ -53,7 +68,7 @@ void libererIndex(T_Index* index) {
     index->nbMotsTotal = 0;
 }
 
-/* --- Fonctions Principales --- */
+/* --- FONCTIONS PRINCIPALES --- */
 
 T_Position* ajouterPosition(T_Position* listeP, int ligne, int ordre, int phrase) {
     T_Position* newP = creerPosition(ligne, ordre, phrase);
@@ -146,7 +161,7 @@ int indexerFichier(T_Index* index, char* filename) {
     return motsLus;
 }
 
-// Helper pour afficherIndex (Formatage Image 1)
+// Helper pour afficherIndex
 void afficherIndexRecursif(T_Noeud* noeud, char* lastChar) {
     if (!noeud) return;
 
@@ -154,26 +169,20 @@ void afficherIndexRecursif(T_Noeud* noeud, char* lastChar) {
 
     char currentChar = toupper(noeud->mot[0]);
     
-    // Si la lettre change (ex: on passe de A à B), on affiche l'en-tête
     if (currentChar != *lastChar) {
         if (*lastChar != '\0') printf("\n"); 
         printf("%c\n", currentChar);
         *lastChar = currentChar;
     }
 
-    // Formatage précis : Barre verticale, tirets, mot
     printf("|-- %s\n", noeud->mot);
     
     T_Position* p = noeud->listePositions;
     while (p) {
-        // Formatage précis : Barre verticale + 4 tirets + position
-        // Exemple image : (1:2, o:16, p:8) -> On suppose l=Ligne, o=Ordre, p=Phrase
-        // L'image utilise "l:1", "o:2"...
         printf("|---- (l:%d, o:%d, p:%d)\n", p->numeroLigne, p->ordre, p->numeroPhrase);
         p = p->suivant;
     }
     
-    // Petite ligne de séparation verticale vide entre les mots d'une même lettre
     printf("|\n");
 
     afficherIndexRecursif(noeud->filsDroit, lastChar);
@@ -199,18 +208,96 @@ T_Noeud* rechercherMot(T_Index index, char* mot) {
     return NULL;
 }
 
-/* --- STRUCTURES INTERMEDIAIRES POUR Q6 & Q7 --- */
+/* --- HELPERS POUR RECONSTRUCTION DE PHRASES --- */
 
-typedef struct MotDansPhrase {
-    char* mot;
-    int ordre;
-    struct MotDansPhrase* suivant;
-} T_MotDansPhrase;
+// Libérer une liste de mots
+void libererListeMots(T_MotDansPhrase* liste) {
+    while (liste) {
+        T_MotDansPhrase* temp = liste;
+        liste = liste->suivant;
+        free(temp);
+    }
+}
 
-typedef struct {
-    T_MotDansPhrase** phrases;
-    int capacite;
-} T_MapPhrases;
+// Insérer un mot trié par ordre dans la liste
+void insererMotTrie(T_MotDansPhrase** liste, char* mot, int ordre) {
+    T_MotDansPhrase* nouveau = (T_MotDansPhrase*)malloc(sizeof(T_MotDansPhrase));
+    if (!nouveau) return;
+    
+    nouveau->mot = mot;
+    nouveau->ordre = ordre;
+    nouveau->suivant = NULL;
+
+    if (*liste == NULL || (*liste)->ordre > ordre) {
+        nouveau->suivant = *liste;
+        *liste = nouveau;
+        return;
+    }
+
+    T_MotDansPhrase* courant = *liste;
+    while (courant->suivant != NULL && courant->suivant->ordre < ordre) {
+        courant = courant->suivant;
+    }
+    
+    nouveau->suivant = courant->suivant;
+    courant->suivant = nouveau;
+}
+
+// Collecter tous les mots d'une phrase donnée (parcours de l'ABR)
+void collecterMotsPhrase(T_Noeud* noeud, int numPhrase, T_MotDansPhrase** phrase) {
+    if (!noeud) return;
+    
+    collecterMotsPhrase(noeud->filsGauche, numPhrase, phrase);
+    
+    T_Position* p = noeud->listePositions;
+    while (p) {
+        if (p->numeroPhrase == numPhrase) {
+            insererMotTrie(phrase, noeud->mot, p->ordre);
+        }
+        p = p->suivant;
+    }
+    
+    collecterMotsPhrase(noeud->filsDroit, numPhrase, phrase);
+}
+
+// Reconstruire et afficher UNE phrase
+void reconstruireEtAfficherPhrase(T_Noeud* racine, T_Position* pos) {
+    T_MotDansPhrase* phrase = NULL;
+    collecterMotsPhrase(racine, pos->numeroPhrase, &phrase);
+    
+    printf("| Ligne %d, mot %d : ", pos->numeroLigne, pos->ordre);
+    
+    T_MotDansPhrase* m = phrase;
+    while (m) {
+        printf("%s", m->mot);
+        if (m->suivant) printf(" ");
+        m = m->suivant;
+    }
+    printf(".\n");
+    
+    libererListeMots(phrase);
+}
+
+/* --- Q6 : AFFICHAGE OPTIMISÉ DES OCCURRENCES --- */
+
+void afficherOccurencesMot(T_Index index, char* mot) {
+    T_Noeud* noeud = rechercherMot(index, mot);
+    if (!noeud) {
+        printf("Mot '%s' non trouve.\n", mot);
+        return;
+    }
+
+    printf("Mot = \"%s\"\nOccurences = %d\n", noeud->mot, noeud->nbOccurences);
+    
+    // Pour chaque occurrence, reconstruire UNIQUEMENT la phrase concernée
+    T_Position* p = noeud->listePositions;
+    while (p) {
+        reconstruireEtAfficherPhrase(index.racine, p);
+        p = p->suivant;
+    }
+}
+
+/* --- HELPERS POUR Q7 (RECONSTRUCTION COMPLÈTE) --- */
 
 void initMap(T_MapPhrases* map, int tailleEstimee) {
     map->capacite = tailleEstimee;
@@ -225,6 +312,7 @@ void ajouterMotDansMap(T_MapPhrases* map, int idPhrase, int ordre, char* mot) {
         for (int i = oldCap; i < newCap; i++) map->phrases[i] = NULL;
         map->capacite = newCap;
     }
+    
     T_MotDansPhrase* newM = (T_MotDansPhrase*)malloc(sizeof(T_MotDansPhrase));
     newM->mot = mot; 
     newM->ordre = ordre;
@@ -267,39 +355,7 @@ void libererMap(T_MapPhrases* map) {
     free(map->phrases);
 }
 
-// Q6 : Affichage contextuel (Formatage Image 2)
-void afficherOccurencesMot(T_Index index, char* mot) {
-    T_Noeud* noeud = rechercherMot(index, mot);
-    if (!noeud) {
-        printf("Mot '%s' non trouve.\n", mot);
-        return;
-    }
-
-    printf("Mot = \"%s\"\nOccurences = %d\n", noeud->mot, noeud->nbOccurences);
-    
-    // Reconstruction de tout le texte pour avoir les phrases complètes
-    T_MapPhrases map;
-    initMap(&map, 100);
-    remplirMapPhrases(index.racine, &map);
-
-    T_Position* p = noeud->listePositions;
-    while (p) {
-        // Formatage exact de l'image 2 : "| Ligne X, mot Y : Phrase..."
-        printf("| Ligne %d, mot %d : ", p->numeroLigne, p->ordre);
-        
-        if (p->numeroPhrase < map.capacite && map.phrases[p->numeroPhrase]) {
-            T_MotDansPhrase* m = map.phrases[p->numeroPhrase];
-            while (m) {
-                printf("%s", m->mot);
-                if (m->suivant) printf(" ");
-                m = m->suivant;
-            }
-            printf(".\n");
-        }
-        p = p->suivant;
-    }
-    libererMap(&map);
-}
+/* --- Q7 : RECONSTRUCTION DU TEXTE --- */
 
 void construireTexte(T_Index index, char* filename) {
     if (!index.racine) return;
@@ -321,6 +377,7 @@ void construireTexte(T_Index index, char* filename) {
             fprintf(f, ".\n");
         }
     }
+    
     libererMap(&map);
     fclose(f);
 }
