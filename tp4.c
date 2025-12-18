@@ -1,23 +1,22 @@
+/*
+ * tp4.c
+ * Implémentation avec Optimisations Algorithmiques Critiques
+ */
+
 #include "tp4.h"
-#include <strings.h> // Pour strcasecmp
-
-/* --- STRUCTURES INTERNES (Helper pour Q6 & Q7) --- */
-
-// Structure pour stocker un mot avec son ordre dans une phrase
-typedef struct MotDansPhrase {
-    char* mot;
-    int ordre;
-    struct MotDansPhrase* suivant;
-} T_MotDansPhrase;
-
-// Structure pour stocker toutes les phrases (utilisée par construireTexte)
-typedef struct {
-    T_MotDansPhrase** phrases;
-    int capacite;
-} T_MapPhrases;
 
 /* --- FONCTIONS UTILITAIRES --- */
 
+// Complexité : O(1)
+void initIndex(T_Index* index) {
+    index->racine = NULL;
+    index->nbMotsDistincts = 0;
+    index->nbMotsTotal = 0;
+    index->nbPhrasesCapacite = 100; 
+    index->tabPhrases = (char**)calloc(index->nbPhrasesCapacite, sizeof(char*));
+}
+
+// Complexité : O(1)
 T_Position* creerPosition(int ligne, int ordre, int phrase) {
     T_Position* newP = (T_Position*)malloc(sizeof(T_Position));
     if (newP) {
@@ -29,47 +28,36 @@ T_Position* creerPosition(int ligne, int ordre, int phrase) {
     return newP;
 }
 
+// Complexité : O(1)
 T_Noeud* creerNoeud(char* mot) {
     T_Noeud* newN = (T_Noeud*)malloc(sizeof(T_Noeud));
     if (newN) {
         newN->mot = strdup(mot);
         newN->nbOccurences = 0;
         newN->listePositions = NULL;
+        newN->dernierePosition = NULL; // Init pointeur queue
         newN->filsGauche = NULL;
         newN->filsDroit = NULL;
     }
     return newN;
 }
 
-int comparerMots(char* m1, char* m2) {
-    return strcasecmp(m1, m2);
-}
-
-void libererNoeud(T_Noeud* noeud) {
-    if (noeud != NULL) {
-        libererNoeud(noeud->filsGauche);
-        libererNoeud(noeud->filsDroit);
-        
-        T_Position* p = noeud->listePositions;
-        while (p != NULL) {
-            T_Position* temp = p;
-            p = p->suivant;
-            free(temp);
-        }
-        free(noeud->mot);
-        free(noeud);
+// Complexité : O(1) amorti (realloc est rare)
+void verifierCapacitePhrases(T_Index* index, int numPhrase) {
+    if (numPhrase >= index->nbPhrasesCapacite) {
+        int oldCap = index->nbPhrasesCapacite;
+        int newCap = (numPhrase * 2) + 50;
+        index->tabPhrases = (char**)realloc(index->tabPhrases, newCap * sizeof(char*));
+        // Mise à NULL des nouvelles cases pour sécurité
+        for (int i = oldCap; i < newCap; i++) index->tabPhrases[i] = NULL;
+        index->nbPhrasesCapacite = newCap;
     }
-}
-
-void libererIndex(T_Index* index) {
-    libererNoeud(index->racine);
-    index->racine = NULL;
-    index->nbMotsDistincts = 0;
-    index->nbMotsTotal = 0;
 }
 
 /* --- FONCTIONS PRINCIPALES --- */
 
+// Complexité : O(k) 
+// (Utilisée uniquement en secours si l'ordre n'est pas respecté)
 T_Position* ajouterPosition(T_Position* listeP, int ligne, int ordre, int phrase) {
     T_Position* newP = creerPosition(ligne, ordre, phrase);
     if (!newP) return listeP;
@@ -95,99 +83,173 @@ T_Position* ajouterPosition(T_Position* listeP, int ligne, int ordre, int phrase
     return listeP;
 }
 
+// Complexité : O(h)
+// h = hauteur de l'arbre.
+// L'insertion de la position est O(1) grâce au pointeur 'dernierePosition'.
 int ajouterOccurence(T_Index* index, char* mot, int ligne, int ordre, int phrase) {
     if (!index) return 0;
-    T_Noeud** courant = &(index->racine);
+    if (index->tabPhrases == NULL) initIndex(index);
 
+    T_Noeud** courant = &(index->racine);
+    T_Noeud* noeudTrouve = NULL;
+
+    // 1. Recherche dans l'ABR : O(h)
     while (*courant != NULL) {
-        int cmp = comparerMots(mot, (*courant)->mot);
+        int cmp = strcasecmp(mot, (*courant)->mot);
         if (cmp == 0) {
-            (*courant)->listePositions = ajouterPosition((*courant)->listePositions, ligne, ordre, phrase);
-            (*courant)->nbOccurences++;
-            index->nbMotsTotal++;
-            return 1;
-        } else if (cmp < 0) {
-            courant = &((*courant)->filsGauche);
-        } else {
-            courant = &((*courant)->filsDroit);
-        }
+            noeudTrouve = *courant;
+            break;
+        } else if (cmp < 0) courant = &((*courant)->filsGauche);
+        else courant = &((*courant)->filsDroit);
     }
 
-    *courant = creerNoeud(mot);
-    if (*courant == NULL) return 0;
-    (*courant)->listePositions = ajouterPosition(NULL, ligne, ordre, phrase);
-    (*courant)->nbOccurences = 1;
+    if (noeudTrouve == NULL) {
+        *courant = creerNoeud(mot);
+        if (!*courant) return 0;
+        noeudTrouve = *courant;
+        index->nbMotsDistincts++;
+    }
+
+    // 2. Ajout Position : O(1) via Queue
+    T_Position* newP = creerPosition(ligne, ordre, phrase);
+    
+    if (noeudTrouve->listePositions == NULL) {
+        noeudTrouve->listePositions = newP;
+        noeudTrouve->dernierePosition = newP;
+    } 
+    else if (noeudTrouve->dernierePosition != NULL) {
+        // Branchement direct à la fin sans parcours
+        noeudTrouve->dernierePosition->suivant = newP;
+        noeudTrouve->dernierePosition = newP;
+    } 
+    else {
+        // Cas fallback (rare)
+        noeudTrouve->listePositions = ajouterPosition(noeudTrouve->listePositions, ligne, ordre, phrase);
+    }
+
+    noeudTrouve->nbOccurences++;
     index->nbMotsTotal++;
-    index->nbMotsDistincts++;
     return 1;
 }
 
+// Complexité Globale : O(N * h + M)
+// N = nombre de mots (coût ABR)
+// h = hauteur arbre
+// M = nombre total de caractères (coût construction phrases)
+// Note : La construction est O(M) Linéaire grâce au remplacement de strcat par l'arithmétique de pointeurs.
 int indexerFichier(T_Index* index, char* filename) {
     FILE* f = fopen(filename, "r");
     if (!f) return 0;
+    if (index->tabPhrases == NULL) initIndex(index);
 
-    char buffer[256];
+    char motBuffer[256];
+    
+    // Buffer dynamique pour la phrase complète
+    int tailleMax = 1024;
+    int lenPhrase = 0; // "Curseur" de position dans la phrase
+    char* phraseBuffer = (char*)malloc(tailleMax * sizeof(char));
+    phraseBuffer[0] = '\0';
+
     int bufIndex = 0;
     char c;
     int ligne = 1, ordre = 1, phrase = 1, motsLus = 0;
 
-    if (index->racine == NULL) {
-        index->nbMotsDistincts = 0;
-        index->nbMotsTotal = 0;
-    }
-
     while ((c = fgetc(f)) != EOF) {
         if (isalpha(c)) {
-            buffer[bufIndex++] = c;
+            motBuffer[bufIndex++] = c;
         } else {
             if (bufIndex > 0) {
-                buffer[bufIndex] = '\0';
-                ajouterOccurence(index, buffer, ligne, ordre, phrase);
+                motBuffer[bufIndex] = '\0';
+                
+                // A. Insertion ABR : O(h)
+                ajouterOccurence(index, motBuffer, ligne, ordre, phrase);
                 motsLus++;
+
+                // B. Construction Phrase Optimisée : O(longueur_mot)
+                int lenMot = strlen(motBuffer);
+                
+                // Redimensionnement si nécessaire
+                if (lenPhrase + lenMot + 5 >= tailleMax) {
+                    tailleMax *= 2;
+                    phraseBuffer = (char*)realloc(phraseBuffer, tailleMax);
+                }
+                
+                // Ajout d'espace (Arithmétique de pointeur, pas de strcat)
+                if (lenPhrase > 0) {
+                    phraseBuffer[lenPhrase] = ' ';
+                    lenPhrase++;
+                }
+                
+                // Copie directe du mot à la bonne adresse (O(lenMot))
+                strcpy(phraseBuffer + lenPhrase, motBuffer);
+                lenPhrase += lenMot;
+                
+                // Null-terminate temporaire
+                phraseBuffer[lenPhrase] = '\0';
+
                 ordre++;
                 bufIndex = 0;
             }
+
             if (c == '\n') { ligne++; ordre = 1; }
-            else if (c == '.') { phrase++; }
+            
+            // Detection fin de phrase
+            if (c == '.') {
+                if (lenPhrase + 2 >= tailleMax) {
+                     phraseBuffer = (char*)realloc(phraseBuffer, tailleMax + 2);
+                }
+                // Ajout point
+                phraseBuffer[lenPhrase] = '.';
+                phraseBuffer[lenPhrase + 1] = '\0';
+                
+                // Sauvegarde O(1) dans le Cache
+                verifierCapacitePhrases(index, phrase);
+                index->tabPhrases[phrase] = strdup(phraseBuffer);
+                
+                // Reset curseurs
+                lenPhrase = 0;
+                phraseBuffer[0] = '\0';
+                phrase++;
+            }
         }
     }
+    
+    // Dernier mot si pas de ponctuation finale
     if (bufIndex > 0) {
-        buffer[bufIndex] = '\0';
-        ajouterOccurence(index, buffer, ligne, ordre, phrase);
+        motBuffer[bufIndex] = '\0';
+        ajouterOccurence(index, motBuffer, ligne, ordre, phrase);
         motsLus++;
     }
 
+    free(phraseBuffer);
     fclose(f);
     return motsLus;
 }
 
-// Helper pour afficherIndex
+// Complexité : O(N) (Parcours infixe complet)
 void afficherIndexRecursif(T_Noeud* noeud, char* lastChar) {
     if (!noeud) return;
-
     afficherIndexRecursif(noeud->filsGauche, lastChar);
 
     char currentChar = toupper(noeud->mot[0]);
-    
     if (currentChar != *lastChar) {
-        if (*lastChar != '\0') printf("\n"); 
+        if (*lastChar != '\0') printf("\n");
         printf("%c\n", currentChar);
         *lastChar = currentChar;
     }
 
     printf("|-- %s\n", noeud->mot);
-    
     T_Position* p = noeud->listePositions;
     while (p) {
         printf("|---- (l:%d, o:%d, p:%d)\n", p->numeroLigne, p->ordre, p->numeroPhrase);
         p = p->suivant;
     }
-    
     printf("|\n");
 
     afficherIndexRecursif(noeud->filsDroit, lastChar);
 }
 
+// Complexité : O(N)
 void afficherIndex(T_Index index) {
     if (index.racine == NULL) {
         printf("Index vide.\n");
@@ -197,10 +259,11 @@ void afficherIndex(T_Index index) {
     afficherIndexRecursif(index.racine, &lastChar);
 }
 
+// Complexité : O(h)
 T_Noeud* rechercherMot(T_Index index, char* mot) {
     T_Noeud* courant = index.racine;
     while (courant != NULL) {
-        int cmp = comparerMots(mot, courant->mot);
+        int cmp = strcasecmp(mot, courant->mot);
         if (cmp == 0) return courant;
         if (cmp < 0) courant = courant->filsGauche;
         else courant = courant->filsDroit;
@@ -208,78 +271,10 @@ T_Noeud* rechercherMot(T_Index index, char* mot) {
     return NULL;
 }
 
-/* --- HELPERS POUR RECONSTRUCTION DE PHRASES --- */
-
-// Libérer une liste de mots
-void libererListeMots(T_MotDansPhrase* liste) {
-    while (liste) {
-        T_MotDansPhrase* temp = liste;
-        liste = liste->suivant;
-        free(temp);
-    }
-}
-
-// Insérer un mot trié par ordre dans la liste
-void insererMotTrie(T_MotDansPhrase** liste, char* mot, int ordre) {
-    T_MotDansPhrase* nouveau = (T_MotDansPhrase*)malloc(sizeof(T_MotDansPhrase));
-    if (!nouveau) return;
-    
-    nouveau->mot = mot;
-    nouveau->ordre = ordre;
-    nouveau->suivant = NULL;
-
-    if (*liste == NULL || (*liste)->ordre > ordre) {
-        nouveau->suivant = *liste;
-        *liste = nouveau;
-        return;
-    }
-
-    T_MotDansPhrase* courant = *liste;
-    while (courant->suivant != NULL && courant->suivant->ordre < ordre) {
-        courant = courant->suivant;
-    }
-    
-    nouveau->suivant = courant->suivant;
-    courant->suivant = nouveau;
-}
-
-// Collecter tous les mots d'une phrase donnée (parcours de l'ABR)
-void collecterMotsPhrase(T_Noeud* noeud, int numPhrase, T_MotDansPhrase** phrase) {
-    if (!noeud) return;
-    
-    collecterMotsPhrase(noeud->filsGauche, numPhrase, phrase);
-    
-    T_Position* p = noeud->listePositions;
-    while (p) {
-        if (p->numeroPhrase == numPhrase) {
-            insererMotTrie(phrase, noeud->mot, p->ordre);
-        }
-        p = p->suivant;
-    }
-    
-    collecterMotsPhrase(noeud->filsDroit, numPhrase, phrase);
-}
-
-// Reconstruire et afficher UNE phrase
-void reconstruireEtAfficherPhrase(T_Noeud* racine, T_Position* pos) {
-    T_MotDansPhrase* phrase = NULL;
-    collecterMotsPhrase(racine, pos->numeroPhrase, &phrase);
-    
-    printf("| Ligne %d, mot %d : ", pos->numeroLigne, pos->ordre);
-    
-    T_MotDansPhrase* m = phrase;
-    while (m) {
-        printf("%s", m->mot);
-        if (m->suivant) printf(" ");
-        m = m->suivant;
-    }
-    printf(".\n");
-    
-    libererListeMots(phrase);
-}
-
-/* --- Q6 : AFFICHAGE OPTIMISÉ DES OCCURRENCES --- */
-
+// Complexité : O(h + k)
+// h = recherche du noeud
+// k = nombre d'occurrences
+// L'accès à la phrase est O(1) grâce au cache 'tabPhrases'.
 void afficherOccurencesMot(T_Index index, char* mot) {
     T_Noeud* noeud = rechercherMot(index, mot);
     if (!noeud) {
@@ -289,95 +284,68 @@ void afficherOccurencesMot(T_Index index, char* mot) {
 
     printf("Mot = \"%s\"\nOccurences = %d\n", noeud->mot, noeud->nbOccurences);
     
-    // Pour chaque occurrence, reconstruire UNIQUEMENT la phrase concernée
     T_Position* p = noeud->listePositions;
     while (p) {
-        reconstruireEtAfficherPhrase(index.racine, p);
+        printf("| Ligne %d, Phrase %d : ", p->numeroLigne, p->numeroPhrase);
+        
+        // Optimisation : Affichage direct depuis le cache
+        if (p->numeroPhrase < index.nbPhrasesCapacite && index.tabPhrases[p->numeroPhrase] != NULL) {
+            printf("%s", index.tabPhrases[p->numeroPhrase]);
+        }
+        printf("\n");
         p = p->suivant;
     }
 }
 
-/* --- HELPERS POUR Q7 (RECONSTRUCTION COMPLÈTE) --- */
-
-void initMap(T_MapPhrases* map, int tailleEstimee) {
-    map->capacite = tailleEstimee;
-    map->phrases = (T_MotDansPhrase**)calloc(map->capacite, sizeof(T_MotDansPhrase*));
-}
-
-void ajouterMotDansMap(T_MapPhrases* map, int idPhrase, int ordre, char* mot) {
-    if (idPhrase >= map->capacite) {
-        int oldCap = map->capacite;
-        int newCap = (idPhrase * 2) + 10;
-        map->phrases = (T_MotDansPhrase**)realloc(map->phrases, newCap * sizeof(T_MotDansPhrase*));
-        for (int i = oldCap; i < newCap; i++) map->phrases[i] = NULL;
-        map->capacite = newCap;
-    }
-    
-    T_MotDansPhrase* newM = (T_MotDansPhrase*)malloc(sizeof(T_MotDansPhrase));
-    newM->mot = mot; 
-    newM->ordre = ordre;
-    newM->suivant = NULL;
-
-    T_MotDansPhrase** tete = &(map->phrases[idPhrase]);
-    if (*tete == NULL || (*tete)->ordre > ordre) {
-        newM->suivant = *tete;
-        *tete = newM;
-    } else {
-        T_MotDansPhrase* cur = *tete;
-        while (cur->suivant != NULL && cur->suivant->ordre < ordre) {
-            cur = cur->suivant;
-        }
-        newM->suivant = cur->suivant;
-        cur->suivant = newM;
-    }
-}
-
-void remplirMapPhrases(T_Noeud* noeud, T_MapPhrases* map) {
-    if (!noeud) return;
-    remplirMapPhrases(noeud->filsGauche, map);
-    T_Position* p = noeud->listePositions;
-    while (p) {
-        ajouterMotDansMap(map, p->numeroPhrase, p->ordre, noeud->mot);
-        p = p->suivant;
-    }
-    remplirMapPhrases(noeud->filsDroit, map);
-}
-
-void libererMap(T_MapPhrases* map) {
-    for (int i = 0; i < map->capacite; i++) {
-        T_MotDansPhrase* m = map->phrases[i];
-        while (m) {
-            T_MotDansPhrase* temp = m;
-            m = m->suivant;
-            free(temp);
-        }
-    }
-    free(map->phrases);
-}
-
-/* --- Q7 : RECONSTRUCTION DU TEXTE --- */
-
+// Complexité : O(P)
+// P = Nombre de phrases.
+// Reconstruction immédiate grâce au cache pré-construit.
 void construireTexte(T_Index index, char* filename) {
-    if (!index.racine) return;
+    if (index.nbMotsTotal == 0) return;
     FILE* f = fopen(filename, "w");
     if (!f) return;
 
-    T_MapPhrases map;
-    initMap(&map, 100);
-    remplirMapPhrases(index.racine, &map);
-
-    for (int i = 0; i < map.capacite; i++) {
-        T_MotDansPhrase* m = map.phrases[i];
-        if (m) {
-            while (m) {
-                fprintf(f, "%s", m->mot);
-                if (m->suivant) fprintf(f, " ");
-                m = m->suivant;
-            }
-            fprintf(f, ".\n");
+    for (int i = 1; i < index.nbPhrasesCapacite; i++) {
+        if (index.tabPhrases[i] != NULL) {
+            fprintf(f, "%s\n", index.tabPhrases[i]);
         }
     }
-    
-    libererMap(&map);
     fclose(f);
+    printf("Texte reconstruit dans %s.\n", filename);
+}
+
+/* --- LIBERATION --- */
+
+// Complexité : O(N)
+void libererNoeud(T_Noeud* noeud) {
+    if (noeud != NULL) {
+        libererNoeud(noeud->filsGauche);
+        libererNoeud(noeud->filsDroit);
+        
+        T_Position* p = noeud->listePositions;
+        while (p != NULL) {
+            T_Position* temp = p;
+            p = p->suivant;
+            free(temp);
+        }
+        free(noeud->mot);
+        free(noeud);
+    }
+}
+
+// Complexité : O(P + N)
+void libererIndex(T_Index* index) {
+    // Libération du cache de phrases
+    if (index->tabPhrases) {
+        for (int i = 0; i < index->nbPhrasesCapacite; i++) {
+            if (index->tabPhrases[i]) free(index->tabPhrases[i]);
+        }
+        free(index->tabPhrases);
+        index->tabPhrases = NULL;
+    }
+    // Libération de l'ABR
+    libererNoeud(index->racine);
+    index->racine = NULL;
+    index->nbMotsDistincts = 0;
+    index->nbMotsTotal = 0;
 }
